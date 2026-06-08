@@ -1662,8 +1662,14 @@ function editReagent(id) {
   if (!r) return;
   editId = id;
   document.getElementById('modal-reagent-title').textContent = '시약 수정';
-  document.getElementById('f-quantity').value = '1';
-  document.getElementById('f-quantity').disabled = true;
+
+  // 현재 lotGroup 전체 개수를 입고량 필드에 표시
+  const gid = r.lotGroupId || r.id;
+  const groupTotal = reagents.filter(x => (x.lotGroupId || x.id) === gid).length;
+  const qtyInput = document.getElementById('f-quantity');
+  qtyInput.value = groupTotal;
+  qtyInput.disabled = false;
+  qtyInput.min = reagents.filter(x => (x.lotGroupId || x.id) === gid && x.openDate).length || 1; // 개봉된 행 수 이하로 못 줄임
   document.getElementById('f-name').value = r.name;
   document.getElementById('f-type').value = r.type;
   document.getElementById('f-manufacturer').value = r.manufacturer || '';
@@ -1729,37 +1735,82 @@ function saveReagent() {
   };
 
   if (editId) {
-    // 수정: 해당 행만 업데이트 (lotGroupId 유지, lotIndex 유지)
-    const existing = reagents.find(x => x.id === editId);
+    // 수정: 해당 행 업데이트 (lotGroupId 유지, lotIndex 유지)
+    const existing  = reagents.find(x => x.id === editId);
+    const gid       = existing?.lotGroupId || editId;
+    const groupAll  = reagents.filter(x => (x.lotGroupId || x.id) === gid)
+                              .sort((a, b) => (a.lotIndex ?? 0) - (b.lotIndex ?? 0));
+    const oldTotal  = groupAll.length;
+    const newTotal  = Math.max(1, parseInt(document.getElementById('f-quantity').value) || oldTotal);
+    const openedCnt = groupAll.filter(x => x.openDate).length;
+
+    // 줄일 수 없는 최소값: 개봉된 행 수
+    if (newTotal < openedCnt) {
+      alert(`개봉된 시약이 ${openedCnt}개 있어 ${openedCnt}개 미만으로 줄일 수 없습니다.`);
+      return;
+    }
+
     const data = {
       ...baseData,
-      id:          editId,
-      lotGroupId:  existing?.lotGroupId || editId,
-      lotIndex:    existing?.lotIndex   ?? 0,
-      lotTotal:    existing?.lotTotal   ?? 1,
-      createdAt:   existing?.createdAt  || today()
+      id:         editId,
+      lotGroupId: gid,
+      lotIndex:   existing?.lotIndex  ?? 0,
+      lotTotal:   newTotal,
+      createdAt:  existing?.createdAt || today()
     };
     const idx = reagents.findIndex(x => x.id === editId);
     reagents[idx] = data;
-    // 같은 lotGroupId의 다른 행들도 공통 필드 업데이트
-    const gid = data.lotGroupId;
+
+    // 같은 그룹 나머지 행 공통 필드 업데이트
     reagents = reagents.map(r => {
-      if (r.lotGroupId === gid && r.id !== editId) {
+      if ((r.lotGroupId || r.id) === gid && r.id !== editId) {
         const updated = { ...r,
           name: baseData.name, type: baseData.type,
           manufacturer: baseData.manufacturer, manager: baseData.manager,
           contents: baseData.contents, storage: baseData.storage,
           supplyDate: baseData.supplyDate, expiry: baseData.expiry,
-          lotTotal: data.lotTotal, cert: baseData.cert, memo: baseData.memo
+          lotTotal: newTotal, cert: baseData.cert, memo: baseData.memo
         };
-        // 개봉 후 유효기간: 미개봉 행(openDate 없는 행)에만 동기화
-        if (!r.openDate) {
-          updated.openValidDays = baseData.openValidDays;
-        }
+        if (!r.openDate) updated.openValidDays = baseData.openValidDays;
         return updated;
       }
       return r;
     });
+
+    // ── 입고량 증가: 미개봉 행 추가 ──
+    if (newTotal > oldTotal) {
+      const addCount = newTotal - oldTotal;
+      const maxIndex = Math.max(...groupAll.map(x => x.lotIndex ?? 0));
+      for (let i = 0; i < addCount; i++) {
+        reagents.push({
+          ...baseData,
+          id:          (Date.now() + i + 1).toString(),
+          lotGroupId:  gid,
+          lotIndex:    maxIndex + i + 1,
+          lotTotal:    newTotal,
+          // 추가 행은 개봉·폐기 초기화
+          openDate:    '',
+          discardDate: '',
+          useDate:     '',
+          createdAt:   today()
+        });
+      }
+    }
+
+    // ── 입고량 감소: 미개봉 행을 뒤에서부터 삭제 ──
+    if (newTotal < oldTotal) {
+      const removeCount = oldTotal - newTotal;
+      // 미개봉 행만 대상 (lotIndex 내림차순)
+      const unopened = reagents
+        .filter(x => (x.lotGroupId || x.id) === gid && !x.openDate && x.id !== editId)
+        .sort((a, b) => (b.lotIndex ?? 0) - (a.lotIndex ?? 0));
+      const toRemove = new Set(unopened.slice(0, removeCount).map(x => x.id));
+      reagents = reagents.filter(x => !toRemove.has(x.id));
+      // lotTotal 재동기화
+      reagents = reagents.map(r =>
+        (r.lotGroupId || r.id) === gid ? { ...r, lotTotal: newTotal } : r
+      );
+    }
   } else {
     // 신규: 입고량만큼 행 생성
     const lotGroupId = Date.now().toString();
