@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QRbot 테스트</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background: #f5f5f5; }
+  .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .ok  { color: #1d8a4a; font-weight: 700; }
+  .err { color: #c0392b; font-weight: 700; }
+  .warn { color: #b45309; font-weight: 700; }
+  pre { background: #f0f0f0; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; word-break: break-all; white-space: pre-wrap; }
+  h2 { margin: 0 0 12px; font-size: 16px; }
+  .big { font-size: 24px; font-weight: 700; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>📷 QRbot 연동 테스트</h2>
+  <div id="result-main"></div>
+</div>
+
+<div class="card">
+  <h2>🔍 URL 파라미터 전체</h2>
+  <pre id="result-params"></pre>
+</div>
+
+<div class="card">
+  <h2>🌐 브라우저 환경</h2>
+  <pre id="result-env"></pre>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const bc   = params.get('bc');
+const user = params.get('user');
+
+// 1. 파라미터 결과
+const mainEl = document.getElementById('result-main');
+if (!bc) {
+  mainEl.innerHTML = '<div class="err">❌ bc 파라미터 없음<br><span style="font-size:13px;font-weight:400;color:#555;">QRbot이 URL을 열었지만 {CODE}가 치환되지 않았거나<br>파라미터가 전달되지 않았습니다.</span></div>';
+} else if (bc === '{CODE}' || bc === '%CODE%') {
+  mainEl.innerHTML = '<div class="err">❌ {CODE} 미치환<br><span style="font-size:13px;font-weight:400;color:#555;">QRbot이 {CODE}를 변수로 인식하지 못했습니다.</span></div>';
+} else {
+  mainEl.innerHTML = `<div class="ok">✅ 바코드 수신 성공!</div>
+    <div class="big">${bc.slice(0,40)}${bc.length>40?'…':''}</div>
+    <div style="font-size:13px;color:#555;">담당자: ${user || '(없음)'}</div>`;
+}
+
+// 2. 전체 파라미터
+const allParams = {};
+params.forEach((v,k) => allParams[k] = v);
+document.getElementById('result-params').textContent =
+  'URL: ' + location.href + '\n\n파라미터:\n' + JSON.stringify(allParams, null, 2);
+
+// 3. 브라우저 환경
+const ua = navigator.userAgent;
+const isWebView = /wv|WebView/.test(ua) || (/(iPhone|iPod|iPad)/.test(ua) && !/Safari/.test(ua));
+document.getElementById('result-env').textContent =
+  'User-Agent: ' + ua + '\n\n' +
+  '웹뷰 여부: ' + (isWebView ? '⚠️ 웹뷰 가능성 있음' : '✅ 외부 브라우저') + '\n' +
+  '화면 크기: ' + window.innerWidth + 'x' + window.innerHeight;
+</script>
+
+</body>
+</html>
